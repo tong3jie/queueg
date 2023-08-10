@@ -5,7 +5,6 @@ import (
 	"math"
 	"os"
 	"runtime/debug"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -17,17 +16,17 @@ func defaultStackTraceHandler(e interface{}) {
 }
 
 type Queue[T any] struct {
-	size      int
+	size      atomic.Int64
 	shards    []shard[T]
 	inoffset  atomic.Int32
 	outoffset atomic.Int32
 	fn        func(T)
-	wg        sync.WaitGroup
 	pool      chan struct{}
 }
 
 type shard[T any] struct {
-	shard chan T
+	size  atomic.Int64
+	Chan  chan T
 	isRun atomic.Bool
 }
 
@@ -35,16 +34,26 @@ func NewQueue[T any](maxSize int) *Queue[T] {
 
 	size := float64(maxSize) / 20
 
-	q := Queue[T]{size: maxSize, inoffset: atomic.Int32{}, outoffset: atomic.Int32{}}
-
-	q.shards = make([]shard[T], MaxIndex)
-	q.pool = make(chan struct{}, MaxIndex*2)
-	for i := 0; i < MaxIndex; i++ {
-		q.pool <- struct{}{} // 初始化 goroutine 池
-		q.shards[i] = shard[T]{shard: make(chan T, int(math.Ceil(size))), isRun: atomic.Bool{}}
+	q := Queue[T]{
+		size:      atomic.Int64{},
+		inoffset:  atomic.Int32{},
+		outoffset: atomic.Int32{},
+		shards:    make([]shard[T], MaxIndex),
+		pool:      make(chan struct{}, MaxIndex*2),
 	}
-	q.wg = sync.WaitGroup{}
-	
+
+	for i := 0; i < MaxIndex*2; i++ {
+		q.pool <- struct{}{} // 初始化 goroutine 池
+	}
+
+	for i := 0; i < MaxIndex; i++ {
+		q.shards[i] = shard[T]{
+			size:  atomic.Int64{},
+			Chan:  make(chan T, int(math.Ceil(size))),
+			isRun: atomic.Bool{},
+		}
+	}
+
 	return &q
 }
 
@@ -52,14 +61,6 @@ func NewQueueWithFn[T any](maxSize int, fn func(T)) *Queue[T] {
 	q := NewQueue[T](maxSize)
 	q.fn = fn
 	return q
-}
-
-func (s *shard[T]) push(v T) {
-	s.shard <- v
-}
-
-func (s *shard[T]) pop() T {
-	return <-s.shard
 }
 
 func (s *shard[T]) run(fn func(T)) {
@@ -71,10 +72,9 @@ func (s *shard[T]) run(fn func(T)) {
 	}()
 
 	s.isRun.Store(true)
-	for v := range s.shard {
+	for v := range s.Chan {
 		fn(v)
 	}
-	s.isRun.Store(false)
 }
 
 // 随机获取一个index
@@ -97,25 +97,63 @@ func (q *Queue[T]) getOutIndex() int {
 
 // 往队列中添加一个元素
 // 该方法为阻塞式
+
 func (q *Queue[T]) Push(v T) {
+	// 首先，尝试将消息写入当前索引的 shard
 	index := q.getInIndex()
-	q.shards[index].push(v)
+	select {
+	case q.shards[index].Chan <- v:
+		q.shards[index].size.Add(1)
+	default:
+		// 如果当前 shard 已满，尝试在其他 shard 中写入
+		for i := 0; i < MaxIndex; i++ {
+			if len(q.shards[i].Chan) < cap(q.shards[i].Chan) {
+				select {
+				case q.shards[i].Chan <- v:
+					q.shards[i].size.Add(1)
+					return
+				default:
+				}
+			}
+		}
+		// 如果所有 shard 都已满，阻塞等待直到有空位可用
+		q.shards[index].Chan <- v
+		q.shards[index].size.Add(1)
+	}
 }
 
 // 从队列中出队一个元素，出队即删除
 // 当队列为空时则会进行阻塞
 func (q *Queue[T]) Pop() T {
+	// 首先，尝试从当前索引的 shard 中出队
 	index := q.getOutIndex()
-	return q.shards[index].pop()
+	select {
+	case v := <-q.shards[index].Chan:
+		q.shards[index].size.Add(-1)
+		return v
+	default:
+		// 如果当前 shard 为空，尝试从其他 shard 中出队
+		for i := 0; i < MaxIndex; i++ {
+			if len(q.shards[i].Chan) > 0 {
+				select {
+				case v := <-q.shards[i].Chan:
+					q.shards[i].size.Add(-1)
+					return v
+				default:
+				}
+			}
+		}
+		// 如果所有 shard 都为空，阻塞等待直到有元素可出队
+		v := <-q.shards[index].Chan
+		q.shards[index].size.Add(-1)
+		return v
+	}
 }
 
 // 获取当前队列的大小
-func (q *Queue[T]) Size() int {
-	n := 0
-	for indx := range q.shards {
-		n += len(q.shards[indx].shard)
-	}
-	return n
+func (q *Queue[T]) Size() int64 {
+
+	return q.size.Load()
 }
 
 // 若创建的队列有回调方法，则可以使用run方式自动执行
@@ -128,6 +166,7 @@ func (q *Queue[T]) Run() {
 				q.shards[i].run(q.fn)
 			}(i)
 		}
+		go q.count()
 		go q.restartShart()
 
 	} else {
@@ -135,19 +174,38 @@ func (q *Queue[T]) Run() {
 	}
 }
 
+// restartShard restarts the shards in the queue.
 func (q *Queue[T]) restartShart() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+
 	for range ticker.C {
 		for i := 0; i < MaxIndex; i++ {
 			if !q.shards[i].isRun.Load() {
-				defer func() {
-					q.pool <- struct{}{} // 将空位放回池中
-				}()
-				<-q.pool // 从池中获取一个空位
-				fmt.Println(i, len(q.shards[i].shard))
-				q.shards[i].run(q.fn)
+				select {
+				case <-q.pool: // 从池中获取一个空位
+					go func(i int) {
+						defer func() {
+							q.pool <- struct{}{} // 将空位放回池中
+						}()
+						q.shards[i].run(q.fn)
+
+					}(i)
+
+				default:
+				}
+
 			}
 		}
 	}
+}
+
+// count continuously calculates the total size of the shards in the queue.
+// It runs indefinitely, adding the size of each shard to the queue's size.
+func (q *Queue[T]) count() {
+	totalSize := int64(0)
+	for i := 0; i < MaxIndex; i++ {
+		totalSize += q.shards[i].size.Load()
+	}
+	q.size.Store(totalSize)
 }
