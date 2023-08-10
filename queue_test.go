@@ -15,7 +15,7 @@ func TestSize(t *testing.T) {
 		q.Push(i)
 	}
 
-	assert.Equal(t, 10000, q.Size())
+	assert.Equal(t, int64(10000), q.Size())
 }
 
 func TestPoP(t *testing.T) {
@@ -30,7 +30,7 @@ func TestPoP(t *testing.T) {
 
 	q.Run()
 	time.Sleep(time.Second * 1)
-	assert.Equal(t, 0, q.Size())
+	assert.Equal(t, int64(0), q.Size())
 }
 
 type ABC struct {

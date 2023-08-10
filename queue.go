@@ -73,6 +73,7 @@ func (s *shard[T]) run(fn func(T)) {
 
 	s.isRun.Store(true)
 	for v := range s.Chan {
+		s.size.Add(-1)
 		fn(v)
 	}
 }
@@ -152,7 +153,11 @@ func (q *Queue[T]) Pop() T {
 
 // 获取当前队列的大小
 func (q *Queue[T]) Size() int64 {
-
+	totalSize := int64(0)
+	for i := 0; i < MaxIndex; i++ {
+		totalSize += q.shards[i].size.Load()
+	}
+	q.size.Store(totalSize)
 	return q.size.Load()
 }
 
@@ -166,7 +171,6 @@ func (q *Queue[T]) Run() {
 				q.shards[i].run(q.fn)
 			}(i)
 		}
-		go q.count()
 		go q.restartShart()
 
 	} else {
@@ -198,14 +202,4 @@ func (q *Queue[T]) restartShart() {
 			}
 		}
 	}
-}
-
-// count continuously calculates the total size of the shards in the queue.
-// It runs indefinitely, adding the size of each shard to the queue's size.
-func (q *Queue[T]) count() {
-	totalSize := int64(0)
-	for i := 0; i < MaxIndex; i++ {
-		totalSize += q.shards[i].size.Load()
-	}
-	q.size.Store(totalSize)
 }
