@@ -23,6 +23,7 @@ type Queue[T any] struct {
 	outoffset atomic.Int32
 	fn        func(T)
 	wg        sync.WaitGroup
+	pool      chan struct{}
 }
 
 type shard[T any] struct {
@@ -37,10 +38,13 @@ func NewQueue[T any](maxSize int) *Queue[T] {
 	q := Queue[T]{size: maxSize, inoffset: atomic.Int32{}, outoffset: atomic.Int32{}}
 
 	q.shards = make([]shard[T], MaxIndex)
+	q.pool = make(chan struct{}, MaxIndex*2)
 	for i := 0; i < MaxIndex; i++ {
+		q.pool <- struct{}{} // 初始化 goroutine 池
 		q.shards[i] = shard[T]{shard: make(chan T, int(math.Ceil(size))), isRun: atomic.Bool{}}
 	}
 	q.wg = sync.WaitGroup{}
+	
 	return &q
 }
 
@@ -119,6 +123,7 @@ func (q *Queue[T]) Run() {
 
 	if q.fn != nil {
 		for i := 0; i < MaxIndex; i++ {
+			<-q.pool // 从池中获取一个空位
 			go func(i int) {
 				q.shards[i].run(q.fn)
 			}(i)
@@ -136,6 +141,10 @@ func (q *Queue[T]) restartShart() {
 	for range ticker.C {
 		for i := 0; i < MaxIndex; i++ {
 			if !q.shards[i].isRun.Load() {
+				defer func() {
+					q.pool <- struct{}{} // 将空位放回池中
+				}()
+				<-q.pool // 从池中获取一个空位
 				fmt.Println(i, len(q.shards[i].shard))
 				q.shards[i].run(q.fn)
 			}
