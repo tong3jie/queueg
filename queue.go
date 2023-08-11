@@ -72,9 +72,16 @@ func (s *shard[T]) run(fn func(T)) {
 	}()
 
 	s.isRun.Store(true)
-	for v := range s.Chan {
-		s.size.Add(-1)
-		fn(v)
+	for {
+		select {
+		case v, ok := <-s.Chan:
+			if !ok {
+				return
+			}
+			s.size.Add(-1)
+			fn(v)
+		default:
+		}
 	}
 }
 
@@ -200,6 +207,26 @@ func (q *Queue[T]) restartShart() {
 				}
 
 			}
+		}
+	}
+}
+
+// 关闭所有的channel，并保证所有channel已消费完毕
+func (q *Queue[T]) Close() {
+	for i := 0; i < MaxIndex; i++ {
+		close(q.shards[i].Chan)
+	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	runTotal := 0
+	for range ticker.C {
+		for i := 0; i < MaxIndex; i++ {
+			if q.shards[i].isRun.Load() {
+				runTotal++
+			}
+		}
+		if runTotal == 0 {
+			return
 		}
 	}
 }
