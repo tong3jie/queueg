@@ -109,3 +109,13 @@ func BenchmarkStruct(b *testing.B) {
 	}
 	b.StopTimer()
 }
+
+func BenchmarkByte(b *testing.B) {
+	q := NewQueue[[]byte](100000000)
+	s := strconv.Itoa(10000) + strconv.Itoa(10000) + strconv.Itoa(10000)
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		q.Push([]byte(s))
+	}
+	b.StopTimer()
+}
