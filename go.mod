@@ -1,4 +1,4 @@
-module queueg
+module github.com/tong3jie/queueg
 
 go 1.18
 
