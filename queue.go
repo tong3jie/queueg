@@ -12,7 +12,7 @@ import (
 const SHARDSMAX = 20
 
 func defaultStackTraceHandler(e interface{}) {
-	_, _ = os.Stderr.WriteString(fmt.Sprintf("panic: %v\n%s\n", e, debug.Stack())) //nolint:errcheck // This will never fail
+	_, _ = os.Stderr.WriteString(fmt.Sprintf("panic: %v\n%s\n", e, debug.Stack()))
 }
 
 type Queue[T any] struct {
@@ -28,20 +28,20 @@ type Queue[T any] struct {
 func New[T any](options ...*Option[T]) *Queue[T] {
 	q := &Queue[T]{}
 	opts := loadOptions(options...)
-	q.shardsMax.Store(opts.shardsMax)
+	q.shardsMax.Store(opts.ShardsMax)
 	q.inoffset.Store(0)
 	q.outoffset.Store(0)
-	q.fn = opts.callback
-	q.pool = make(chan struct{}, opts.shardsMax*2)
-	q.shards = make([]shard[T], opts.shardsMax)
-	q.panicHaddel = opts.panicHandler
+	q.fn = opts.Callback
+	q.pool = make(chan struct{}, opts.ShardsMax*2)
+	q.shards = make([]shard[T], opts.ShardsMax)
+	q.panicHaddel = opts.PanicHandler
 
 	// 初始化 goroutine 池
 	for i := 0; i < int(q.shardsMax.Load())*2; i++ {
 		q.pool <- struct{}{}
 	}
 
-	size := float64(opts.maxSize / opts.shardsMax)
+	size := float64(opts.MaxSize / opts.ShardsMax)
 	for i := 0; i < SHARDSMAX; i++ {
 		q.shards[i] = shard[T]{
 			size:         atomic.Int64{},

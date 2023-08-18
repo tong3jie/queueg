@@ -1,35 +1,35 @@
 package queueg
 
 type Option[T any] struct {
-	shardsMax    int64
-	maxSize      int64
-	callback     func(T)
-	panicHandler func(e any)
+	ShardsMax    int64
+	MaxSize      int64
+	Callback     func(T)
+	PanicHandler func(e any)
 }
 
 func loadOptions[T any](options ...*Option[T]) *Option[T] {
 	opts := NewOption[T]()
 	for _, opt := range options {
-		if opt.shardsMax != 0 {
-			opts.shardsMax = opt.shardsMax
+		if opt.ShardsMax != 0 {
+			opts.ShardsMax = opt.ShardsMax
 		} else {
-			opts.shardsMax = SHARDSMAX
+			opts.ShardsMax = SHARDSMAX
 		}
 
-		if opt.callback != nil {
-			opts.callback = opt.callback
+		if opt.Callback != nil {
+			opts.Callback = opt.Callback
 		}
 
-		if opt.panicHandler != nil {
-			opts.panicHandler = opt.panicHandler
+		if opt.PanicHandler != nil {
+			opts.PanicHandler = opt.PanicHandler
 		} else {
-			opts.panicHandler = defaultStackTraceHandler
+			opts.PanicHandler = defaultStackTraceHandler
 		}
 
-		if opt.maxSize != 0 {
-			opts.maxSize = opt.maxSize
+		if opt.MaxSize != 0 {
+			opts.MaxSize = opt.MaxSize
 		} else {
-			opts.maxSize = SHARDSMAX
+			opts.MaxSize = SHARDSMAX
 		}
 	}
 	return opts
@@ -37,17 +37,17 @@ func loadOptions[T any](options ...*Option[T]) *Option[T] {
 
 func NewOption[T any]() *Option[T] {
 	return &Option[T]{
-		shardsMax:    SHARDSMAX,
-		maxSize:      SHARDSMAX * 10,
-		callback:     nil,
-		panicHandler: defaultStackTraceHandler,
+		ShardsMax:    SHARDSMAX,
+		MaxSize:      SHARDSMAX * 10,
+		Callback:     nil,
+		PanicHandler: defaultStackTraceHandler,
 	}
 }
 
 // ShardsMax set shards max
 func WithShardsMax[T any](shardsMax int64) *Option[T] {
 	o := &Option[T]{
-		shardsMax: shardsMax,
+		ShardsMax: shardsMax,
 	}
 	return o
 }
@@ -55,19 +55,19 @@ func WithShardsMax[T any](shardsMax int64) *Option[T] {
 // ShardsMax set shards max
 func WithSize[T any](size int64) *Option[T] {
 	o := &Option[T]{
-		maxSize: size,
+		MaxSize: size,
 	}
 	return o
 }
 
 func WithCallback[T any](callback func(T)) *Option[T] {
 	o := &Option[T]{}
-	o.callback = callback
+	o.Callback = callback
 	return o
 }
 
 func WithPanicHandler[T any](panicHandler func(e any)) *Option[T] {
 	o := &Option[T]{}
-	o.panicHandler = panicHandler
+	o.PanicHandler = panicHandler
 	return o
 }
