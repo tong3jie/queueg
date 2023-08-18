@@ -7,7 +7,7 @@ type Option[T any] struct {
 	panicHandler func(e any)
 }
 
-func loadOptions[T any](options ...Option[T]) *Option[T] {
+func loadOptions[T any](options ...*Option[T]) *Option[T] {
 	opts := NewOption[T]()
 	for _, opt := range options {
 		if opt.shardsMax != 0 {
@@ -36,27 +36,38 @@ func loadOptions[T any](options ...Option[T]) *Option[T] {
 }
 
 func NewOption[T any]() *Option[T] {
-	return &Option[T]{}
+	return &Option[T]{
+		shardsMax:    SHARDSMAX,
+		maxSize:      SHARDSMAX * 10,
+		callback:     nil,
+		panicHandler: defaultStackTraceHandler,
+	}
 }
 
 // ShardsMax set shards max
-func (o *Option[T]) ShardsMax(shardsMax int64) *Option[T] {
-	o.shardsMax = shardsMax
+func WithShardsMax[T any](shardsMax int64) *Option[T] {
+	o := &Option[T]{
+		shardsMax: shardsMax,
+	}
 	return o
 }
 
 // ShardsMax set shards max
-func (o *Option[T]) Size(size int64) *Option[T] {
-	o.maxSize = size
+func WithSize[T any](size int64) *Option[T] {
+	o := &Option[T]{
+		maxSize: size,
+	}
 	return o
 }
 
-func (o *Option[T]) Callback(callback func(T)) *Option[T] {
+func WithCallback[T any](callback func(T)) *Option[T] {
+	o := &Option[T]{}
 	o.callback = callback
 	return o
 }
 
-func (o *Option[T]) PanicHandler(panicHandler func(e any)) *Option[T] {
+func WithPanicHandler[T any](panicHandler func(e any)) *Option[T] {
+	o := &Option[T]{}
 	o.panicHandler = panicHandler
 	return o
 }

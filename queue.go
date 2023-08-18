@@ -25,7 +25,7 @@ type Queue[T any] struct {
 	panicHaddel func(e any)
 }
 
-func New[T any](options ...Option[T]) *Queue[T] {
+func New[T any](options ...*Option[T]) *Queue[T] {
 	q := &Queue[T]{}
 	opts := loadOptions(options...)
 	q.shardsMax.Store(opts.shardsMax)

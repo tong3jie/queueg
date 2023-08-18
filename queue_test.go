@@ -65,6 +65,41 @@ func TestPoP2(t *testing.T) {
 	assert.Equal(t, int32(1000), total.Load())
 }
 
+func TestPanic(t *testing.T) {
+	q := NewQueueWithFn[*ABC](100000000, func(abc *ABC) {
+
+		fmt.Println(abc)
+		if abc.A == 100 {
+			panic("100")
+		}
+
+	})
+	for i := 0; i < 1000; i++ {
+		q.Push(&ABC{i, i, i, i, i, i, i, i, i})
+	}
+
+	q.Run()
+	time.Sleep(time.Second * 1)
+	assert.Equal(t, 999, 999)
+}
+
+func TestShardsMax(t *testing.T) {
+	q := New[int](WithShardsMax[int](100))
+	assert.Equal(t, int64(100), q.shardsMax.Load())
+}
+
+func TestWithDefault(t *testing.T) {
+	o := NewOption[int]()
+	q := New[int](o)
+	assert.Equal(t, int64(20), q.shardsMax.Load())
+	assert.Equal(t, 10, cap(q.shards[0].Chan))
+}
+
+func TestWithSize(t *testing.T) {
+	q := New[int](WithSize[int](100))
+	assert.Equal(t, int(5), cap(q.shards[0].Chan))
+}
+
 func BenchmarkPushInt(b *testing.B) {
 	q := NewQueue[int](100000000)
 	b.StartTimer()
