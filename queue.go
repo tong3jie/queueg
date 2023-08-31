@@ -1,9 +1,11 @@
 package queueg
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
+	"runtime"
 	"runtime/debug"
 	"sync/atomic"
 	"time"
@@ -23,10 +25,14 @@ type Queue[T any] struct {
 	fn          func(T)
 	pool        chan struct{}
 	panicHaddel func(e any)
+	ctx         context.Context
+	cancle      context.CancelFunc
 }
 
 func New[T any](options ...*Option[T]) *Queue[T] {
 	q := &Queue[T]{}
+	q.ctx, q.cancle = context.WithCancel(context.Background())
+
 	opts := loadOptions(options...)
 	q.shardsMax.Store(opts.ShardsMax)
 	q.inoffset.Store(0)
@@ -48,6 +54,7 @@ func New[T any](options ...*Option[T]) *Queue[T] {
 			Chan:         make(chan T, int(math.Ceil(size))),
 			isRun:        atomic.Bool{},
 			panicHandler: q.panicHaddel,
+			ctx:          q.ctx,
 		}
 	}
 	return q
@@ -64,7 +71,8 @@ func NewQueue[T any](maxSize int) *Queue[T] {
 		shards:    make([]shard[T], SHARDSMAX),
 		pool:      make(chan struct{}, SHARDSMAX*2),
 	}
-
+	q.ctx, q.cancle = context.WithCancel(context.Background())
+	q.shardsMax.Store(SHARDSMAX)
 	// 初始化 goroutine 池
 	for i := 0; i < SHARDSMAX*2; i++ {
 		q.pool <- struct{}{}
@@ -76,6 +84,7 @@ func NewQueue[T any](maxSize int) *Queue[T] {
 			Chan:         make(chan T, int(math.Ceil(size))),
 			isRun:        atomic.Bool{},
 			panicHandler: defaultStackTraceHandler,
+			ctx:          q.ctx,
 		}
 	}
 
@@ -90,20 +99,28 @@ func NewQueueWithFn[T any](maxSize int, fn func(T)) *Queue[T] {
 
 // 随机获取一个index
 func (q *Queue[T]) getInIndex() int {
-	n := q.inoffset.Add(1)
-	if n > int32(q.shardsMax.Load())-1 {
-		q.inoffset.Store(0)
+	n := q.inoffset.Load()
+	m := n + 1
+	if n >= int32(q.shardsMax.Load())-1 {
+		m = 0
 	}
-	return int(n - 1)
+	for !q.inoffset.CompareAndSwap(n, m) {
+		runtime.Gosched()
+	}
+	return int(n)
 }
 
 // 随机获取一个index
 func (q *Queue[T]) getOutIndex() int {
-	n := q.outoffset.Add(1)
-	if n > int32(q.shardsMax.Load())-1 {
-		q.outoffset.Store(0)
+	n := q.outoffset.Load()
+	m := n + 1
+	if n >= int32(q.shardsMax.Load())-1 {
+		m = 0
 	}
-	return int(n - 1)
+	for !q.outoffset.CompareAndSwap(n, m) {
+		runtime.Gosched()
+	}
+	return int(n)
 }
 
 // 往队列中添加一个元素
@@ -123,6 +140,8 @@ func (q *Queue[T]) Push(v T) {
 	select {
 	case q.shards[index].Chan <- v:
 		q.shards[index].size.Add(1)
+	case <-q.ctx.Done():
+		return
 	default:
 
 		// 如果当前 shard 已满，尝试在其他 shard 中写入
@@ -133,7 +152,8 @@ func (q *Queue[T]) Push(v T) {
 				case q.shards[i].Chan <- v:
 					q.shards[i].size.Add(1)
 					return
-				default:
+				case <-q.ctx.Done():
+					return
 				}
 			}
 		}
@@ -153,6 +173,8 @@ func (q *Queue[T]) Pop() T {
 	case v := <-q.shards[index].Chan:
 		q.shards[index].size.Add(-1)
 		return v
+	case <-q.ctx.Done():
+		return *new(T)
 	default:
 		// 如果当前 shard 为空，尝试从其他 shard 中出队
 		for i := 0; i < SHARDSMAX; i++ {
@@ -161,7 +183,8 @@ func (q *Queue[T]) Pop() T {
 				case v := <-q.shards[i].Chan:
 					q.shards[i].size.Add(-1)
 					return v
-				default:
+				case <-q.ctx.Done():
+					break
 				}
 			}
 		}
@@ -214,8 +237,9 @@ func (q *Queue[T]) restartShart() {
 						q.shards[i].run(q.fn)
 
 					}(i)
-
 				default:
+					time.Sleep(time.Second * 1)
+
 				}
 
 			}
@@ -225,6 +249,7 @@ func (q *Queue[T]) restartShart() {
 
 // 关闭所有的channel，并保证所有channel已消费完毕
 func (q *Queue[T]) Close() {
+	q.cancle()
 	for i := 0; i < int(q.shardsMax.Load()); i++ {
 		close(q.shards[i].Chan)
 	}
