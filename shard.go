@@ -24,9 +24,17 @@ func (s *shard[T]) run(fn func(T)) {
 			if !ok {
 				return
 			}
-			s.size.Add(-1)
 			fn(v)
+			s.size.Add(-1)
 		default:
+			select {
+			case v, ok := <-s.Chan:
+				if !ok {
+					return
+				}
+				fn(v)
+				s.size.Add(-1)
+			}
 		}
 	}
 }

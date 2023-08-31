@@ -91,7 +91,7 @@ func NewQueueWithFn[T any](maxSize int, fn func(T)) *Queue[T] {
 // 随机获取一个index
 func (q *Queue[T]) getInIndex() int {
 	n := q.inoffset.Add(1)
-	if n > SHARDSMAX-1 {
+	if n > int32(q.shardsMax.Load())-1 {
 		q.inoffset.Store(0)
 	}
 	return int(n - 1)
@@ -100,7 +100,7 @@ func (q *Queue[T]) getInIndex() int {
 // 随机获取一个index
 func (q *Queue[T]) getOutIndex() int {
 	n := q.outoffset.Add(1)
-	if n > SHARDSMAX-1 {
+	if n > int32(q.shardsMax.Load())-1 {
 		q.outoffset.Store(0)
 	}
 	return int(n - 1)
@@ -126,7 +126,7 @@ func (q *Queue[T]) Push(v T) {
 	default:
 
 		// 如果当前 shard 已满，尝试在其他 shard 中写入
-		for i := 0; i < SHARDSMAX; i++ {
+		for i := 0; i < int(q.shardsMax.Load()); i++ {
 			index = i
 			if len(q.shards[i].Chan) < cap(q.shards[i].Chan) {
 				select {
@@ -175,17 +175,16 @@ func (q *Queue[T]) Pop() T {
 // 获取当前队列的大小
 func (q *Queue[T]) Size() int64 {
 	totalSize := int64(0)
-	for i := 0; i < SHARDSMAX; i++ {
+	for i := 0; i < int(q.shardsMax.Load()); i++ {
 		totalSize += q.shards[i].size.Load()
 	}
-	q.shardsMax.Store(totalSize)
-	return q.shardsMax.Load()
+	return totalSize
 }
 
 // 若创建的队列有回调方法，则可以使用run方式自动执行
 func (q *Queue[T]) Run() {
 	if q.fn != nil {
-		for i := 0; i < SHARDSMAX; i++ {
+		for i := 0; i < int(q.shardsMax.Load()); i++ {
 			<-q.pool // 从池中获取一个空位
 			go func(i int) {
 				q.shards[i].run(q.fn)
@@ -204,7 +203,7 @@ func (q *Queue[T]) restartShart() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		for i := 0; i < SHARDSMAX; i++ {
+		for i := 0; i < int(q.shardsMax.Load()); i++ {
 			if !q.shards[i].isRun.Load() {
 				select {
 				case <-q.pool: // 从池中获取一个空位
@@ -226,14 +225,14 @@ func (q *Queue[T]) restartShart() {
 
 // 关闭所有的channel，并保证所有channel已消费完毕
 func (q *Queue[T]) Close() {
-	for i := 0; i < SHARDSMAX; i++ {
+	for i := 0; i < int(q.shardsMax.Load()); i++ {
 		close(q.shards[i].Chan)
 	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	runTotal := 0
 	for range ticker.C {
-		for i := 0; i < SHARDSMAX; i++ {
+		for i := 0; i < int(q.shardsMax.Load()); i++ {
 			if q.shards[i].isRun.Load() {
 				runTotal++
 			}
