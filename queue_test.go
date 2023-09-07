@@ -100,6 +100,14 @@ func TestWithSize(t *testing.T) {
 	assert.Equal(t, int(5), cap(q.shards[0].Chan))
 }
 
+func TestWithHash(t *testing.T) {
+	q := New[int](WithSize[int](100))
+	q.PushByHash(100, "100")
+	hash := defaultHash("100")
+	index := hash % uint64(q.shardsMax.Load())
+	assert.Equal(t, 1, len(q.shards[index].Chan))
+}
+
 func BenchmarkPushInt(b *testing.B) {
 	q := NewQueue[int](100000000)
 	b.StartTimer()

@@ -9,12 +9,18 @@ import (
 	"runtime/debug"
 	"sync/atomic"
 	"time"
+
+	"github.com/cespare/xxhash/v2"
 )
 
 const SHARDSMAX = 20
 
 func defaultStackTraceHandler(e interface{}) {
 	_, _ = os.Stderr.WriteString(fmt.Sprintf("panic: %v\n%s\n", e, debug.Stack()))
+}
+
+func defaultHash(s string) uint64 {
+	return xxhash.Sum64([]byte(s))
 }
 
 type Queue[T any] struct {
@@ -162,6 +168,21 @@ func (q *Queue[T]) Push(v T) {
 		q.shards[index].Chan <- v
 		q.shards[index].size.Add(1)
 	}
+}
+
+func (q *Queue[T]) PushByHash(v T, hashKey string) {
+
+	index := defaultHash(hashKey) % uint64(q.shardsMax.Load())
+
+	defer func() {
+		q.shards[index].isRun.Store(false)
+		if r := recover(); r != nil {
+			q.shards[index].panicHandler(r)
+		}
+	}()
+
+	q.shards[index].Chan <- v
+	q.shards[index].size.Add(1)
 }
 
 // 从队列中出队一个元素，出队即删除
