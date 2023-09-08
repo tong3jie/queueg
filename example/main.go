@@ -11,8 +11,8 @@ import (
 )
 
 func main() {
-	q := queueg.NewQueueWithFn[string](1000, func(s string) {
-		Print(s)
+	q := queueg.NewQueueWithFn[string](1000, func(s string, part int) {
+		Print(s, part)
 	})
 
 	for i := 0; i < 1000; i++ {
@@ -26,6 +26,6 @@ func main() {
 	fmt.Println("退出信号", s)
 }
 
-func Print(s string) {
-	fmt.Println(s)
+func Print(s string, part int) {
+	fmt.Println(s, part)
 }

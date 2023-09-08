@@ -11,9 +11,10 @@ type shard[T any] struct {
 	isRun        atomic.Bool
 	panicHandler func(e interface{})
 	ctx          context.Context
+	partion      int
 }
 
-func (s *shard[T]) run(fn func(T)) {
+func (s *shard[T]) run(fn func(value T, partion int)) {
 	defer func() {
 		s.isRun.Store(false)
 		if r := recover(); r != nil {
@@ -28,7 +29,7 @@ func (s *shard[T]) run(fn func(T)) {
 			if !ok {
 				return
 			}
-			fn(v)
+			fn(v, s.partion)
 			s.size.Add(-1)
 
 		case <-s.ctx.Done():

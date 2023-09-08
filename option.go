@@ -3,7 +3,7 @@ package queueg
 type Option[T any] struct {
 	ShardsMax    int64
 	MaxSize      int64
-	Callback     func(T)
+	Callback     func(value T, partion int)
 	PanicHandler func(e any)
 }
 
@@ -60,7 +60,7 @@ func WithSize[T any](size int64) *Option[T] {
 	return o
 }
 
-func WithCallback[T any](callback func(T)) *Option[T] {
+func WithCallback[T any](callback func(value T, partion int)) *Option[T] {
 	o := &Option[T]{}
 	o.Callback = callback
 	return o

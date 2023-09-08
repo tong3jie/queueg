@@ -28,7 +28,7 @@ type Queue[T any] struct {
 	shards      []shard[T]
 	inoffset    atomic.Int32
 	outoffset   atomic.Int32
-	fn          func(T)
+	fn          func(value T, partion int)
 	pool        chan struct{}
 	panicHaddel func(e any)
 	ctx         context.Context
@@ -61,6 +61,7 @@ func New[T any](options ...*Option[T]) *Queue[T] {
 			isRun:        atomic.Bool{},
 			panicHandler: q.panicHaddel,
 			ctx:          q.ctx,
+			partion:      i,
 		}
 	}
 	return q
@@ -91,13 +92,14 @@ func NewQueue[T any](maxSize int) *Queue[T] {
 			isRun:        atomic.Bool{},
 			panicHandler: defaultStackTraceHandler,
 			ctx:          q.ctx,
+			partion:      i,
 		}
 	}
 
 	return &q
 }
 
-func NewQueueWithFn[T any](maxSize int, fn func(T)) *Queue[T] {
+func NewQueueWithFn[T any](maxSize int, fn func(value T, partion int)) *Queue[T] {
 	q := NewQueue[T](maxSize)
 	q.fn = fn
 	return q

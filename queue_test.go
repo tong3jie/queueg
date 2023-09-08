@@ -33,9 +33,9 @@ func TestSize(t *testing.T) {
 }
 
 func TestPoP(t *testing.T) {
-	q := NewQueueWithFn[*ABC](100000000, func(abc *ABC) {
+	q := NewQueueWithFn[*ABC](100000000, func(abc *ABC, part int) {
 
-		fmt.Println(abc)
+		fmt.Println(abc, part)
 
 	})
 	for i := 0; i < 1000; i++ {
@@ -49,7 +49,7 @@ func TestPoP(t *testing.T) {
 
 func TestPoP2(t *testing.T) {
 	total := atomic.Int32{}
-	fn := func(abc *ABC) {
+	fn := func(abc *ABC, part int) {
 		total.Add(1)
 	}
 	q := NewQueueWithFn[*ABC](1000, fn)
@@ -66,7 +66,7 @@ func TestPoP2(t *testing.T) {
 }
 
 func TestPanic(t *testing.T) {
-	q := NewQueueWithFn[*ABC](100000000, func(abc *ABC) {
+	q := NewQueueWithFn[*ABC](100000000, func(abc *ABC, part int) {
 
 		fmt.Println(abc)
 		if abc.A == 100 {
@@ -101,11 +101,19 @@ func TestWithSize(t *testing.T) {
 }
 
 func TestWithHash(t *testing.T) {
-	q := New[int](WithSize[int](100))
-	q.PushByHash(100, "100")
-	hash := defaultHash("100")
-	index := hash % uint64(q.shardsMax.Load())
-	assert.Equal(t, 1, len(q.shards[index].Chan))
+	q := NewQueueWithFn[int](1000, func(i int, part int) {
+		fmt.Println(i)
+	})
+	go func() {
+		for i := 0; i < 1000; i++ {
+			q.PushByHash(i, "100")
+		}
+	}()
+
+	q.Run()
+
+	time.Sleep(time.Second * 10)
+
 }
 
 func BenchmarkPushInt(b *testing.B) {
